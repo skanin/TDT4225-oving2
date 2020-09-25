@@ -1,5 +1,6 @@
 from DbConnector import DbConnector
 from tabulate import tabulate
+from datetime import datetime
 import os
 
 class Program:
@@ -81,7 +82,10 @@ class Program:
         with open(path) as f:
             lines = f.readlines()[1:]
             for line in lines:
-                activities.append(list(map(lambda x: x.strip(), line.split('\t'))))
+                l = list(map(lambda x: x.strip(), line.split('\t')))
+                l[0] = datetime.strptime(l[0].replace('/', '-'), '%Y-%m-%d %H:%M:%S')
+                l[1] = datetime.strptime(l[1].replace('/', '-'), '%Y-%m-%d %H:%M:%S')
+                activities.append(l)
         return activities
 
     def readTrackPoints(self, paths, root):
@@ -93,18 +97,16 @@ class Program:
                 if len(lines) <= 2500:
                     tmp = []
                     for line in lines:
-                        tmp.append(list(map(lambda x: x.strip(), line.split('\t'))))
+                        l = list(map(lambda x: x.strip(), line.split(',')))
+                        l[-1] = datetime.strptime(l[-2] + ' ' + l[-1], '%Y-%m-%d %H:%M:%S')
+                        del l[-2]
+                        tmp.append(l)
                     trackpoints[path.split('.')[0]] = tmp
-                else:
-                    if '000' in root:
-                        count += 1
-        if '000' in root:
-            print(count)
         return trackpoints
 
     def testOsWalk(self):
         users = {} # Create user dictionaty
-        labeledUsers = list(map(lambda x: str(x.strip()), self.readIds()))  # Find all users that has label
+        labeledUsers = list(map(lambda x: str(x.strip()), self.readIds())) # Find all users that has label
         activities = {}
         trackpoints = {}
         num = 1
@@ -117,13 +119,36 @@ class Program:
             if 'labels.txt' in files:
                 activities[userid] = self.readLabels(f'{root}/labels.txt')
             
-            if "Trajectory" in root:
-                print(f'Reading trackpoints for user {userid} - Percent done: {round(num/182 * 100, 2)}')
+            if "Trajectory" in root: #and '021' in root:
+                print(f'Reading trackpoints for user {userid} - {round(num/182 * 100, 2)}% done')
                 trackpoints[userid] = self.readTrackPoints(files, root)
                 num += 1
-        #print(activities['010'])
-        print(len(trackpoints['000'].keys()))
-        # self.insertIntoUser(users) # Insert users into DB.
+        print()
+        print('##################################')
+        print()
+
+        userCount = 1
+        labeledTrackpoints = {}
+        for user in labeledUsers:
+            print(f'Checking for labeles activities for user {userCount}/{len(labeledUsers)} - {round(userCount/len(labeledUsers) * 100, 2)}% done')
+            for activity in activities[user]:
+                for key, value in trackpoints[user].items():
+                    yyyy = key[0:4]
+                    mm = key[4:6]
+                    dd = key[6:8]
+                    hh = key[8:10]
+                    m = key[10:12]
+                    ss = key[12:14]
+                    date_trackpoint = datetime(int(yyyy), int(mm), int(dd), int(hh), int(m), int(ss))
+                    if activity[0] == date_trackpoint and value[-1][-1] == activity[1]:
+                        if user in labeledTrackpoints:
+                            labeledTrackpoints[user].append(value)
+                        else:
+                            labeledTrackpoints[user] = value
+            userCount += 1
+        print(len(labeledTrackpoints.keys()))
+
+
 
 
 def main():
