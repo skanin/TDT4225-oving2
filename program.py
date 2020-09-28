@@ -168,10 +168,18 @@ class Program:
         activities = {}
         trackpoints = {}
         num = 1
-        for root, dirs, files in os.walk('./dataset/Data'): # Loop through folders
+
+        path = ""
+        if 'win' in sys.platform:
+            path = '.\\dataset\\Data'
+        else:
+            path = './dataset/Data'
+
+        for root, dirs, files in os.walk(path): # Loop through folders
             if len(dirs) > 0 and len(files) == 0:  # Skip folders where the only folder are 'Trajectory'
                 continue
-            userid = str(root.split('/')[3]) # Get user id from folder name
+            splitChar = '\\' if 'win' in sys.platform else '/'
+            userid = str(root.split(splitChar)[3]) # Get user id from folder name
             users[userid] = userid in labeledUsers  # Insert user into users dic, with value 'has_labels'
 
             if 'labels.txt' in files:
@@ -247,6 +255,7 @@ class Program:
 
 def main():
     try:
+        exc_info = sys.exc_info()
         program = Program()
         program.cleanDB()
         program.insertData()
