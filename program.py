@@ -1,7 +1,13 @@
-from DbConnector import DbConnector
-from tabulate import tabulate
-from datetime import datetime
+import itertools
 import os
+import sys
+import traceback
+from datetime import datetime
+
+from tabulate import tabulate
+
+from DbConnector import DbConnector
+
 
 class Program:
     def __init__(self):
@@ -83,37 +89,49 @@ class Program:
         self.db_connection.commit()
         print('Inserted users')
 
-    def insertIntoActivity(self, activities):
+    def insertIntoActivity(self, activities, trackpoints):
+        userCount = max(map(lambda x: int(x), activities))
+        count = 1
         for user, tps in activities.items():
-            activityQuery = f'INSERT INTO Activity(user_id, transportation_mode, start_date_time, end_date_time) VALUES ("{user}", "{tps[0]}", "{tps[1][-1].strftime("%Y-%m-%d %H:%M:%S")}", "{tps[-1][-1].strftime("%Y-%m-%d %H:%M:%S")}")'
-            self.cursor.execute(activityQuery)
-            self.db_connection.commit()
-            insertId = self.cursor.lastrowid
             query = "INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time) VALUES "
-            for tp in tps:
-                if type(tp) != str:
-                    print(tp)
-                    query += f'({insertId}, {tp[0]}, {tp[1]}, {tp[2]}, {tp[4]}, "{tp[5].strftime("%Y-%m-%d %H:%M:%S")}"), '
+            print(f'Inserting info activities for user {user} - {round(count/userCount * 100, 2)} ')
+            activityCount = 1        
+            for activity in tps:
+                activityQuery = f'INSERT INTO Activity(user_id, transportation_mode, start_date_time, end_date_time) VALUES '
+                activityQuery += f'("{user}", "{activity[0]}", "{activity[1][-1].strftime("%Y-%m-%d %H:%M:%S")}", "{activity[-1][-1].strftime("%Y-%m-%d %H:%M:%S")}")'
+                self.cursor.execute(activityQuery)
+                self.db_connection.commit()
+                activityCount += 1
+                insertId = self.cursor.lastrowid
+                for tp in activity[1:]:
+                    query += f'({insertId}, {tp[0]}, {tp[1]}, {tp[3]}, {tp[4]}, "{tp[5].strftime("%Y-%m-%d %H:%M:%S")}"), '
 
             query = query[0: len(query) - 2] + ";"
-
             self.cursor.execute(query)
             self.db_connection.commit()
-            print('Inserted activities and corresponding trackpoints')
+            count += 1
+        print('Inserted activities and corresponding trackpoints')
         
     def insertIntoTrackPoint(self, trackpoints, labeledTrackpoints):
-        query = "INSERT INTO TrackPoint (lat, lon, altitude, date_days, date_time) VALUES "
+        userCount = max(map(lambda x: int(x), trackpoints.keys()))
+        count = 1
         for user, trackpoint in trackpoints.items():
+            print(f'Insert into trackpoints for user {user} - {round(count/userCount * 100, 2)}')
+            # tmp = []
+            # if user in labeledTrackpoints.keys():
+            #     tmp = [j for i in map(lambda y: y[1:][0:], labeledTrackpoints[user]) for j in i]
+            query = "INSERT INTO TrackPoint (lat, lon, altitude, date_days, date_time) VALUES "
             for tpId, tps in trackpoint.items():
-                if user in labeledTrackpoints.keys():
-                    trackpoints[user][tpId] = list(filter(lambda x: x not in labeledTrackpoints[user][1:], trackpoints[user][tpId]))
-
+                # if user in labeledTrackpoints.keys():
+                #     trackpoints[user][tpId] = list(filter(lambda x: x not in tmp, trackpoints[user][tpId]))
                 for tp in tps:
-                    if len(trackpoints[user][tpId]) > 0:
+                    if len(trackpoints[user][tpId]) > 0 and type(trackpoints[user][tpId][0]) != str:
                         query += f'({tp[0]}, {tp[1]}, {tp[2]}, {tp[4]}, "{tp[5].strftime("%Y-%m-%d %H:%M:%S")}"), '
         
-        query = query[0: len(query) - 2] + ";"
-        self.cursor.execute(query)
+            query = query[0: len(query) - 2] + ";"
+            if query != "INSERT INTO TrackPoint (lat, lon, altitude, date_days, date_time) VALUE;":
+                self.cursor.execute(query)
+            count += 1
         self.db_connection.commit()
         print("Inserted trackpoints")
 
@@ -159,7 +177,7 @@ class Program:
             if 'labels.txt' in files:
                 activities[userid] = self.readLabels(f'{root}/labels.txt')
             
-            if "Trajectory" in root: # and '021' in root:
+            if "Trajectory" in root: # and '020' in root:
                 print(f'Reading trackpoints for user {userid} - {round(num/182 * 100, 2)}% done')
                 trackpoints[userid] = self.readTrackPoints(files, root)
                 num += 1
@@ -167,26 +185,44 @@ class Program:
         print()
         print('##################################')
         print()
-        
+
         userCount = 1
         labeledTrackpoints = {}
         for user in labeledUsers:
             print(f'Checking for labeles activities for user {userCount}/{len(labeledUsers)} - {round(userCount/len(labeledUsers) * 100, 2)}% done')
-            for activity in activities[user]:
-                for key, value in trackpoints[user].items():
-                    yyyy = key[0:4]
-                    mm = key[4:6]
-                    dd = key[6:8]
-                    hh = key[8:10]
-                    m = key[10:12]
-                    ss = key[12:14]
-                    date_trackpoint = datetime(int(yyyy), int(mm), int(dd), int(hh), int(m), int(ss))
-                    if activity[0] == date_trackpoint and value[-1][-1] == activity[1]:
-                        if user in labeledTrackpoints:
-                            labeledTrackpoints[user].append([activity[-1]] + value)
-                        else:
-                            labeledTrackpoints[user] = [activity[-1]] + value
+            if user in labeledUsers:
+                for activity in activities[user]:
+                    keys = [] 
+                    for key, value in trackpoints[user].items():
+                        yyyy = key[0:4]
+                        mm = key[4:6]
+                        dd = key[6:8]
+                        hh = key[8:10]
+                        m = key[10:12]
+                        ss = key[12:14]
+                        date_trackpoint = datetime(int(yyyy), int(mm), int(dd), int(hh), int(m), int(ss))
+                        if activity[0] == date_trackpoint and value[-1][-1] == activity[1]:
+                            tmp = []
+                            if value[0] in ['bike', 'walk', 'bus', 'car', 'train', 'subway', 'airplane', 'boat', 'run', 'motorcycle']:
+                                tmp = value.copy()
+                                tmp[0] = activity[0]
+                            else:
+                                value.insert(0, activity[-1])
+                            if user in labeledTrackpoints.keys():
+                                labeledTrackpoints[user].append(tmp if len(tmp) > 0 else value)
+                            else:
+                                labeledTrackpoints[user] = [tmp if len(tmp) > 0 else value]
+                            keys.append(key)
+                    for key in keys:
+                        del trackpoints[user][key]
             userCount += 1
+
+        """
+        for user, tps in labeledTrackpoints.items():
+            for activity in tps:
+                if 'bike' in activity and 'walk' in activity:
+                    print(activity)
+        """
         
         print()
         print('##################################')
@@ -200,7 +236,7 @@ class Program:
         print()
 
         print("Inserting into activity, with corresponding trackpoints")
-        self.insertIntoActivity(labeledTrackpoints)
+        self.insertIntoActivity(labeledTrackpoints, trackpoints)
 
         print()
         print('##################################')
@@ -209,7 +245,6 @@ class Program:
         print("Inserting into trackpoint")
         self.insertIntoTrackPoint(trackpoints, labeledTrackpoints)
 
-
 def main():
     try:
         program = Program()
@@ -217,6 +252,7 @@ def main():
         program.insertData()
     except Exception as e:
         print(e)
+        traceback.print_tb(sys.exc_info()[2])
 
 
 if __name__ == '__main__':
