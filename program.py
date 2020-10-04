@@ -26,13 +26,6 @@ class Program:
         self.cursor.execute("SET GLOBAL max_allowed_packet=1073741824;")
         self.cursor.execute("SET GLOBAL net_write_timeout=180;")
         self.db_connection.commit()
-        self.cursor.execute("SHOW VARIABLES WHERE variable_name = 'max_allowed_packet';")
-        for x in self.cursor:
-            print(x)
-
-        self.cursor.execute("SHOW VARIABLES WHERE variable_name = 'net_write_timeout';")
-        for x in self.cursor:
-            print(x)
 
     def createUserTable(self):
         query = """CREATE TABLE IF NOT EXISTS User (
@@ -298,15 +291,16 @@ class Program:
 
         print(tabulate(rows, headers=self.cursor.column_names))
 
-    def task2point6a(self):
-        print('################################')
-        print('Task 2.6a')
+    def task2point6a(self, inTaskB = False):
+        if not inTaskB:
+            print('################################')
+            print('Task 2.6a')
         query = 'SELECT COUNT(*) as ActivityCount, YEAR(start_date_time) as yyyy from Activity GROUP BY YEAR(start_date_time) ORDER BY ActivityCount DESC LIMIT 1;'
 
         self.cursor.execute(query)
         rows = self.cursor.fetchall()
-
-        print(tabulate(rows, headers=self.cursor.column_names))
+        if not inTaskB:
+            print(tabulate(rows, headers=self.cursor.column_names))
         return rows[0][1]
     
     def task2point6b(self):
@@ -319,7 +313,7 @@ class Program:
 
         print(tabulate(rows, headers=self.cursor.column_names))
 
-        if self.task2point6a() == rows[0][0]:
+        if self.task2point6a(True) == rows[0][0]:
             print('Yes, the year is also the year with most recorded hours')
         else:
             print('No, the year is not also the year with most recorded hours')
@@ -347,7 +341,130 @@ class Program:
                 count += haversine(point1, point2, unit='km')
         
         print(f'User 112 walked {count}km in 2008')
+    
+    def task2point8(self):
+        print('################################')
+        print('Task 2.8')
+        query = 'SELECT Activity.user_id, altitude, Activity.id FROM Activity JOIN TrackPoint ON Activity.id = TrackPoint.activity_id WHERE altitude != -777 ORDER BY altitude ASC;'
 
+        self.cursor.execute(query)
+
+        activities = {}
+        for activity in self.cursor.fetchall():
+            if activity[2] in activities:
+                activities[activity[2]].append(activity[:2])
+            else:
+                activities[activity[2]] = [activity[:2]]
+
+        altitudeGained = {}
+        users = {}
+        for key, val in activities.items():
+            altitude = 0
+            user = val[0][0]
+            for i in range(1, len(val)-1):
+                last_altitude = val[i-1][1]
+                if val[i][1] > last_altitude:
+                    altitude += val[i][1] - last_altitude
+            if user in users:
+                users[user].append(altitude)
+            else:
+                users[user] = [altitude]
+
+        all_users = []
+
+        for key in users:
+            all_users.append((key, sum(users[key])*0.3048))
+        
+        all_users = sorted(all_users, key=lambda x: x[1], reverse=True)[0:20]
+
+        print(tabulate(all_users, headers=['id', 'total meters gained pr user']))
+
+    def task2point9(self):
+        print('################################')
+        print('Task 2.9')
+        query = 'SELECT a.id, a.user_id, tp.date_days FROM TrackPoint as tp JOIN Activity as a ON tp.activity_id = a.id;'
+
+        self.cursor.execute(query)
+
+        activities = {}
+        for activity in self.cursor.fetchall():
+            if activity[0] in activities:
+                activities[activity[0]].append(activity[1:])
+            else:
+                activities[activity[0]] = [activity[1:]]
+        
+
+        users_with_invalid_activities = {}
+        for key, val in activities.items():
+            user = val[0][0]
+            for i in range(0, len(val) - 1):
+                if val[i + 1][1] - val[i][1] >= 0.00347222222:
+                    if user in users_with_invalid_activities:
+                        users_with_invalid_activities[user] += 1
+                    else:
+                        users_with_invalid_activities[user] = 1
+                    break
+
+        all_users = []
+        for key in users_with_invalid_activities:
+            all_users.append((key, users_with_invalid_activities[user]))
+        
+        print(tabulate(all_users, headers=["User", "Number of invalid activities"]))
+
+    def task2point10(self):
+        print('################################')
+        print('Task 2.10')
+
+        # query = 'SELECT a.user_id, tp.lat, tp.lon FROM Activity as a JOIN TrackPoint as tp ON a.id = tp.activity_id;'
+
+        # self.cursor.execute(query)
+        
+        # users_in_forbidden_city = []
+        
+        # for activity in map(lambda x: [x[0], round(x[1], 3), round(x[2], 3)], self.cursor.fetchall()):
+        #     if [activity[0]] in users_in_forbidden_city:
+        #         continue
+        #     if activity[1] == 39.916 and activity[2] == 116.397:
+        #         users_in_forbidden_city.append([activity[0]])
+
+        # print(tabulate(users_in_forbidden_city, headers=["User in Forbidden City"]))
+
+        query = 'SELECT DISTINCT a.user_id AS "User in Forbidden City" FROM Activity as a JOIN TrackPoint as tp ON a.id = tp.activity_id WHERE ROUND(tp.lon, 3) = 116.397 AND ROUND(tp.lat, 3) = 39.916;'
+        self.cursor.execute(query)
+
+        print(tabulate(self.cursor.fetchall(), headers=self.cursor.column_names))
+
+    
+    def task2point11(self):
+        print('################################')
+        print('Task 2.11')
+        query = 'SELECT user_id, transportation_mode  FROM Activity WHERE transportation_mode IN (SELECT DISTINCT transportation_mode FROM Activity);'
+
+        self.cursor.execute(query)
+
+        users = {}
+        for row in self.cursor.fetchall():
+            user = row[0]
+            mode = row[1]
+            if user in users:
+                if mode in users[user]:
+                    users[user][mode] += 1
+                else:
+                    users[user][mode] = 1
+            else:
+                users[user] = {mode: 1}
+
+        all_users = []
+        for user, modes in users.items():
+            trans_count = 0
+            trans_mode = None
+            for mode, count in modes.items():
+                if count > trans_count:
+                    trans_count = count
+                    trans_mode = mode
+            all_users.append([user, trans_mode])
+        
+        print(tabulate(all_users, headers=["user_id", "most_used_transportation_mode"]))
 
 def main():
     # try:
@@ -361,8 +478,8 @@ def main():
     # print('Inserted data')
     # print('##############')
     # print(f'{time.time() - start} seconds')
-    program.task2point1()
-    print()
+    # program.task2point1()
+    # print()
     program.task2point2()
     print()
     program.task2point3()
@@ -376,6 +493,14 @@ def main():
     program.task2point6b()
     print()
     program.task2point7()
+    print()
+    program.task2point8()
+    print()
+    program.task2point9()
+    print()
+    program.task2point10()
+    print()
+    program.task2point11()
     # except Exception as e:
         # print(e)
         # traceback.print_tb(sys.exc_info()[2])
