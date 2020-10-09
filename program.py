@@ -249,6 +249,7 @@ class Program:
     ####################################################
     # Task 2.
     def task2point1(self):
+        """Returns how many users, trackpoints and activies that are in the database"""
         print('################################')
         print('Task 2.1')
         query = "SELECT (SELECT COUNT(*) FROM User as User_count), (SELECT COUNT(*) FROM Activity as Activity_count), (SELECT COUNT(*) FROM TrackPoint as TrackPoint_count);"
@@ -259,6 +260,7 @@ class Program:
         print(tabulate(rows, headers=["User count", "Activity count", "Trackpoint count"]))
     
     def task2point2(self):
+        """Finds average number of activities pr user"""
         print('################################')
         print('Task 2.2')
         query = 'SELECT (SELECT COUNT(*) FROM Activity)/(SELECT COUNT(*) FROM User) AS "Average activity pr user";'
@@ -269,6 +271,7 @@ class Program:
         print(tabulate(rows, headers=self.cursor.column_names))
 
     def task2point3(self):
+        """Finds top 20 users with highest number of activities"""
         print('################################')
         print('Task 2.3')
         query = 'SELECT u.id, COUNT(*) AS num_activities FROM User u JOIN Activity a ON u.id = a.user_id GROUP BY u.id ORDER BY num_activities DESC LIMIT 20;'
@@ -279,6 +282,7 @@ class Program:
         print(tabulate(rows, headers=self.cursor.column_names))
 
     def task2point4(self):
+        """Finds all users that have ridden taxi"""
         print('################################')
         print('Task 2.4')
         query = "SELECT DISTINCT u.id AS have_ridden_taxi FROM User u JOIN Activity a ON u.id = a.user_id WHERE a.transportation_mode = 'taxi';"
@@ -289,6 +293,7 @@ class Program:
         print(tabulate(rows, headers=self.cursor.column_names))
 
     def task2point5(self):
+        """Finds all transportation_mode and their count"""
         print('################################')
         print('Task 2.5')
         query = 'SELECT transportation_mode, COUNT(*) as num_activities FROM Activity WHERE transportation_mode IN (SELECT DISTINCT transportation_mode FROM Activity) GROUP BY transportation_mode;'
@@ -298,7 +303,8 @@ class Program:
 
         print(tabulate(rows, headers=self.cursor.column_names))
 
-    def task2point6a(self, inTaskB = False):
+    def task2point6a(self, inTaskB=False):
+        """Finds year with most activities"""
         if not inTaskB:
             print('################################')
             print('Task 2.6a')
@@ -311,6 +317,7 @@ class Program:
         return rows[0][1]
     
     def task2point6b(self):
+        """Finds if the year with most activities is also most recorded hours"""
         print('################################')
         print('Task 2.6b')
         query = 'SELECT YEAR(start_date_time) as yyyy, SUM(HOUR(TIMEDIFF(end_date_time, start_date_time)) + MINUTE(TIMEDIFF(end_date_time, start_date_time))/60 + SECOND(TIMEDIFF(end_date_time, start_date_time))/3600) AS Sum_hours FROM Activity GROUP BY YEAR(start_date_time) ORDER BY Sum_hours DESC LIMIT 1;'
@@ -326,6 +333,7 @@ class Program:
             print('No, the year is not also the year with most recorded hours')
 
     def task2point7(self):
+        """Finds total distance walked in 2008 by user 112"""
         print('################################')
         print('Task 2.7')
         query = """SELECT t.lat, t.lon, t.activity_id FROM User u JOIN Activity a ON u.id = a.user_id JOIN TrackPoint t ON a.id = t.activity_id WHERE u.id = '112' AND transportation_mode = 'walk' AND YEAR(start_date_time) = '2008' AND YEAR(end_date_time) = '2008';"""
@@ -350,6 +358,9 @@ class Program:
         print(f'User 112 walked {count}km in 2008')
     
     def task2point8(self):
+        """
+        Finds top 20 users who have gained most altitude
+        """
         print('################################')
         print('Task 2.8')
         # query = 'SELECT Activity.user_id, altitude, Activity.id FROM Activity JOIN TrackPoint ON Activity.id = TrackPoint.activity_id WHERE altitude != -777 ORDER BY TrackPoint.id ASC;'
@@ -385,9 +396,30 @@ class Program:
         # all_users = sorted(all_users, key=lambda x: x[1], reverse=True)[0:20]
 
         # print(tabulate(all_users, headers=['id', 'total meters gained pr user']))
+        query = """
+            SELECT sub.UserID AS "ID", sub.Altitude_m AS "Total meters gained"
+            FROM ( 
+                SELECT 
+                    Activity.user_id AS userID, 
+                    SUM(CASE WHEN tp1.altitude IS NOT NULL AND
+                    tp2.altitude IS NOT NULL 
+                    THEN (tp2.altitude - tp1.altitude) * 0.3048000 ELSE 0 END) AS Altitude_m 
+                FROM 
+                    TrackPoint AS tp1 JOIN TrackPoint AS tp2 ON tp1.activity_id=tp2.activity_id AND 
+                    tp1.id+1 = tp2.id JOIN Activity ON Activity.id = tp1.activity_id AND Activity.id = tp2.activity_id 
+                WHERE tp2.altitude > tp1.altitude 
+                GROUP BY Activity.user_id ) AS sub 
+            ORDER BY Altitude_m DESC 
+            LIMIT 20;
+        """
+
+        self.cursor.execute(query)
+        rows = self.cursor.fetchall()
+        print(tabulate(rows, headers=self.cursor.column_names))
 
 
     def task2point9(self):
+        """Finds all users who have invalid activities and count of invalid activities"""
         print('################################')
         print('Task 2.9')
         # query = 'SELECT a.id, a.user_id, tp.date_days FROM TrackPoint as tp JOIN Activity as a ON tp.activity_id = a.id;'
@@ -443,6 +475,7 @@ class Program:
         print(tabulate(rows, headers=self.cursor.column_names))
 
     def task2point10(self):
+        """Finds the users that have tracked activities in the Forbidden city of Beijing"""
         print('################################')
         print('Task 2.10')
 
@@ -467,6 +500,7 @@ class Program:
 
     
     def task2point11(self):
+        """Finds all users who have registered transportation_mode and their most used transportation_mode"""
         print('################################')
         print('Task 2.11')
         # query = 'SELECT user_id, transportation_mode  FROM Activity WHERE transportation_mode IN (SELECT DISTINCT transportation_mode FROM Activity);'
@@ -535,37 +569,39 @@ class Program:
 def main():
     # try:
     program = Program()
-    # program.setup()
-    # program.setMaxGlobal()
-    # print('##############')
-    # start = time.time()
-    # print('Inserting data...')
-    # program.insertData()
-    # print('Inserted data')
-    # print('##############')
-    # print(f'{time.time() - start} seconds')
-    # program.task2point1()
-    # print()
-    # program.task2point2()
-    # print()
-    # program.task2point3()
-    # print()
-    # program.task2point4()
-    # print()
-    # program.task2point5()
-    # print()
-    # program.task2point6a()
-    # print()
-    # program.task2point6b()
-    # print()
-    # program.task2point7()
-    # print()
-    # program.task2point8()
-    # print()
-    # program.task2point9()
-    # print()
-    # program.task2point10()
-    # print()
+    program.cleanDB()
+    program.setMaxGlobal()
+    print('##############')
+    start = time.time()
+    print('Inserting data...')
+    program.insertData()
+    print('Inserted data')
+    print('##############')
+    print(f'{time.time() - start} seconds')
+    print('\n'*3)
+    print('##################Tasks##################')
+    program.task2point1()
+    print()
+    program.task2point2()
+    print()
+    program.task2point3()
+    print()
+    program.task2point4()
+    print()
+    program.task2point5()
+    print()
+    program.task2point6a()
+    print()
+    program.task2point6b()
+    print()
+    program.task2point7()
+    print()
+    program.task2point8()
+    print()
+    program.task2point9()
+    print()
+    program.task2point10()
+    print()
     program.task2point11()
     # except Exception as e:
         # print(e)
