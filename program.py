@@ -23,11 +23,13 @@ class Program:
         self.activitiesToAdd = []
 
     def setMaxGlobal(self):
+        """Set db max allowed packet size and up the timeout"""
         self.cursor.execute("SET GLOBAL max_allowed_packet=1073741824;")
         self.cursor.execute("SET GLOBAL net_write_timeout=180;")
         self.db_connection.commit()
 
     def createUserTable(self):
+        """Create the users table"""
         query = """CREATE TABLE IF NOT EXISTS User (
                    id VARCHAR(4) NOT NULL PRIMARY KEY,
                    has_labels BOOL)
@@ -36,6 +38,7 @@ class Program:
         self.cursor.execute(query)
     
     def createActivityTable(self):
+        """Create the Activity table"""
         query = """CREATE TABLE IF NOT EXISTS Activity (
             id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
             user_id VARCHAR(4),
@@ -49,6 +52,7 @@ class Program:
         self.cursor.execute(query)
 
     def createTrackPointTable(self):
+        """Create TrackPoint table"""
         query = """
             CREATE TABLE IF NOT EXISTS TrackPoint (
                 id INT AUTO_INCREMENT NOT NULL PRIMARY KEY,
@@ -65,6 +69,7 @@ class Program:
         self.cursor.execute(query)
     
     def cleanDB(self):
+        """Drop all tables and create them again"""
         queries = ['DROP TABLE IF EXISTS TrackPoint;', 'DROP TABLE IF EXISTS Activity;', 'DROP TABLE IF EXISTS User;']
 
         for q in queries:
@@ -79,36 +84,34 @@ class Program:
         
         print('Cleaned DB')
 
-    def setup(self):
-        self.cleanDB()
-
     def readIds(self):
+        """Read what users has labels"""
         with open('dataset/labeled_ids.txt') as f:
             return f.readlines()
-    
-    def readTrackPoint(self, tp):
-        pass
+
 
     def insertIntoUser(self, users):
+        """Insert into users table"""
         query = "INSERT INTO User (id, has_labels) VALUES "
         
         for key, val in users.items():
-            query += f'("{key}", {val}), '
-        query = query[0: len(query) - 2]
+            query += f'("{key}", {val}), ' # Add all users to the sql query
+        query = query[0: len(query) - 2] # Finish of the query
         query += ';'
 
-        self.cursor.execute(query)
-        self.db_connection.commit()
+        self.cursor.execute(query) # Execute the query
+        self.db_connection.commit() # Commit changes to database
         print('Inserted users')
 
     def insertIntoActivity(self, activities, trackpoints, user):
+        """Inserts into activities table AND finds corresponding trackpoints"""
         tps_to_add = []
         while True:
             activityQuery = f'INSERT INTO Activity(user_id, transportation_mode, start_date_time, end_date_time) VALUES '
             try:
-                tp = next(trackpoints)
-                # if len(tp) > 2500: print(len(tp))
-                for activity in activities:
+                tp = next(trackpoints) # Get next trackpoint from generator
+                
+                for activity in activities: # Loop through activities
                     yyyy = tp[0][0:4] # Store year of first trackpoint in file
                     mm = tp[0][4:6] # Store month of first trackpoint in file
                     dd = tp[0][6:8] # Store day of first trackpoint in file
@@ -117,37 +120,39 @@ class Program:
                     ss = tp[0][12:14]  # Store seconds of first trackpoint in file
                     date_trackpoint = f'{yyyy}/{mm}/{dd} {hh}:{m}:{ss}'
                     
-                    if date_trackpoint == activity[0] and activity[1] == tp[-1][-1]:
-                        self.keysToSkip.append(tp[0])
-                        activityQuery += f'("{user}", "{activity[-1]}", "{activity[0]}", "{activity[1]}"), '
+                    if date_trackpoint == activity[0] and activity[1] == tp[-1][-1]: # If we have a full match on activity start and end
+                        self.keysToSkip.append(tp[0]) # We skip this trackpoint later on
+                        activityQuery += f'("{user}", "{activity[-1]}", "{activity[0]}", "{activity[1]}"), ' # We add activity to query
                 if activityQuery != 'INSERT INTO Activity(user_id, transportation_mode, start_date_time, end_date_time) VALUES ':
-                    activityQuery = activityQuery[0: len(activityQuery) - 2] + ";"
+                    # If we have added activity to query
+                    activityQuery = activityQuery[0: len(activityQuery) - 2] + ";" # We finish off the query
                     self.cursor.execute(activityQuery) # Execute query that inserts activity
                     self.db_connection.commit()  # Commit change
                     
-                    insertid = self.cursor.lastrowid
-                    for trackpoint in tp:
+                    insertid = self.cursor.lastrowid # Get activity insert id
+                    for trackpoint in tp: # Loop through all trackpoints in this activity
                         if type(trackpoint) == list:
                             trackpoint.insert(0, self.cursor.lastrowid)
-                            self.acitivityTpsToAdd.append(tuple(trackpoint))
-            except StopIteration:
-                break
+                            self.acitivityTpsToAdd.append(tuple(trackpoint)) # And add them to 'activityTpsToAdd' for inserting later.
+            except StopIteration: # if we do not have more elements in the generator
+                break # break
             
         
-    def insertIntoTrackPoint(self, trackpoints, activity=False, user=None):
+    def prepareTrackPoints(self, trackpoints, activity=False, user=None):
+        """Inserts new acties to Activity table and prepares trackpoints for insert"""
         while True:
             try:
-                tps = next(trackpoints)
-                if not activity and tps[0] not in self.keysToSkip:
-                    #print(user)
+                tps = next(trackpoints) # get next from generator
+                if not activity and tps[0] not in self.keysToSkip:  # If we are not to skip this activity and it is not an activity with label
                     q = f'INSERT INTO Activity(user_id, transportation_mode, start_date_time, end_date_time) VALUES ("{user}", NULL, "{tps[1][-1]}", "{tps[-1][-1]}");'
-                    self.cursor.execute(q)
-                    self.db_connection.commit()
-                    insertid = self.cursor.lastrowid
-                    for tp in tps:
+                    # We add a new activity with transportation mode NULL to the query.
+                    self.cursor.execute(q) # And execute the query.
+                    self.db_connection.commit() # Adn commit the change
+                    insertid = self.cursor.lastrowid # We get the last insert id.
+                    for tp in tps: # For all trackpoints in the activity
                         if type(tp) != str:
-                            if insertid in self.tpsToAdd:
-                                self.tpsToAdd[insertid].append(tp)
+                            if insertid in self.tpsToAdd: 
+                                self.tpsToAdd[insertid].append(tp) # Append trackpoint to dict with insert id as key
                             else:
                                 self.tpsToAdd[insertid] = [tuple(tp)]
 
@@ -178,9 +183,9 @@ class Program:
                     for line in lines:  # Loop through every line in the file
                         if len(line) > 0:
                             l = list(map(lambda x: x.strip(), line.split(','))) # Split the line to get a list of the elements, strip \n and \t
-                            l[-2] = (l[-2] + ' ' + l[-1]).replace('-', '/')  # Convert date and time to datetime object
-                            del l[2]
-                            del l[-1]
+                            l[-2] = (l[-2] + ' ' + l[-1]).replace('-', '/')  # Convert date and time to datetime string
+                            del l[2] # Delete third element, we don't need it
+                            del l[-1] # Delete last value, because it's merged with l[-2]
                             tmp.append(l)
                     yield tmp
 
@@ -221,18 +226,18 @@ class Program:
             
             if "Trajectory" in root: # If we are in a trajectory folder ...
                 print(f'Reading trackpoints for user {userid} - {round(num/182 * 100, 2)}% done')
-                self.insertIntoTrackPoint(self.readTrackPoints(files, root), user=userid) # Read trackpoints
+                self.prepareTrackPoints(self.readTrackPoints(files, root), user=userid) # Read trackpoints
                 num += 1
         
+        # Add all trackpoints with a transportation mode
         query = "INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time) VALUES (%s, %s, %s, %s, %s, %s)"
         print('Inserting labeled trackpoints...')
         self.cursor.executemany(query, self.acitivityTpsToAdd[:len(self.acitivityTpsToAdd) // 2])
         self.db_connection.commit()
-        print('Committed first')
         self.cursor.executemany(query, self.acitivityTpsToAdd[len(self.acitivityTpsToAdd) // 2 :])
         self.db_connection.commit()
-        print('Committed second')
 
+        # Add all trackpoints with transportation mode NULL.
         for insertid, tps in self.tpsToAdd.items():
             q = 'INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time) VALUES '
             for tp in tps:
@@ -241,6 +246,8 @@ class Program:
             self.cursor.execute(q)
         self.db_connection.commit()
     
+    ####################################################
+    # Task 2.
     def task2point1(self):
         print('################################')
         print('Task 2.1')
@@ -321,8 +328,8 @@ class Program:
     def task2point7(self):
         print('################################')
         print('Task 2.7')
-        query = 'SELECT TrackPoint.lon, TrackPoint.lat, TrackPoint.activity_id FROM TrackPoint JOIN Activity ON TrackPoint.activity_id = Activity.id WHERE user_id = "112" AND transportation_mode = "walk" AND YEAR(start_date_time) = 2008;'
-
+        query = """SELECT t.lat, t.lon, t.activity_id FROM User u JOIN Activity a ON u.id = a.user_id JOIN TrackPoint t ON a.id = t.activity_id WHERE u.id = '112' AND transportation_mode = 'walk' AND YEAR(start_date_time) = '2008' AND YEAR(end_date_time) = '2008';"""
+        
         self.cursor.execute(query)
 
         activities = {}
@@ -345,71 +352,95 @@ class Program:
     def task2point8(self):
         print('################################')
         print('Task 2.8')
-        query = 'SELECT Activity.user_id, altitude, Activity.id FROM Activity JOIN TrackPoint ON Activity.id = TrackPoint.activity_id WHERE altitude != -777 ORDER BY altitude ASC;'
+        # query = 'SELECT Activity.user_id, altitude, Activity.id FROM Activity JOIN TrackPoint ON Activity.id = TrackPoint.activity_id WHERE altitude != -777 ORDER BY TrackPoint.id ASC;'
 
-        self.cursor.execute(query)
+        # self.cursor.execute(query)
 
-        activities = {}
-        for activity in self.cursor.fetchall():
-            if activity[2] in activities:
-                activities[activity[2]].append(activity[:2])
-            else:
-                activities[activity[2]] = [activity[:2]]
+        # activities = {}
+        # for activity in self.cursor.fetchall():
+        #     if activity[2] in activities:
+        #         activities[activity[2]].append(activity[:2])
+        #     else:
+        #         activities[activity[2]] = [activity[:2]]
 
-        altitudeGained = {}
-        users = {}
-        for key, val in activities.items():
-            altitude = 0
-            user = val[0][0]
-            for i in range(1, len(val)-1):
-                last_altitude = val[i-1][1]
-                if val[i][1] > last_altitude:
-                    altitude += val[i][1] - last_altitude
-            if user in users:
-                users[user].append(altitude)
-            else:
-                users[user] = [altitude]
+        # altitudeGained = {}
+        # users = {}
+        # for key, val in activities.items():
+        #     altitude = 0
+        #     user = val[0][0]
+        #     for i in range(1, len(val)-1):
+        #         last_altitude = val[i-1][1]
+        #         if val[i][1] > last_altitude:
+        #             altitude += val[i][1] - last_altitude
+        #     if user in users:
+        #         users[user].append(altitude)
+        #     else:
+        #         users[user] = [altitude]
 
-        all_users = []
+        # all_users = []
 
-        for key in users:
-            all_users.append((key, sum(users[key])*0.3048))
+        # for key in users:
+        #     all_users.append((key, sum(users[key])*0.3048))
         
-        all_users = sorted(all_users, key=lambda x: x[1], reverse=True)[0:20]
+        # all_users = sorted(all_users, key=lambda x: x[1], reverse=True)[0:20]
 
-        print(tabulate(all_users, headers=['id', 'total meters gained pr user']))
+        # print(tabulate(all_users, headers=['id', 'total meters gained pr user']))
+
 
     def task2point9(self):
         print('################################')
         print('Task 2.9')
-        query = 'SELECT a.id, a.user_id, tp.date_days FROM TrackPoint as tp JOIN Activity as a ON tp.activity_id = a.id;'
+        # query = 'SELECT a.id, a.user_id, tp.date_days FROM TrackPoint as tp JOIN Activity as a ON tp.activity_id = a.id;'
 
+        # self.cursor.execute(query)
+
+        # activities = {}
+        # for activity in self.cursor.fetchall():
+        #     if activity[0] in activities:
+        #         activities[activity[0]].append(activity[1:])
+        #     else:
+        #         activities[activity[0]] = [activity[1:]]
+        
+
+        # users_with_invalid_activities = {}
+        # for key, val in activities.items():
+        #     user = val[0][0]
+        #     for i in range(0, len(val) - 1):
+        #         if val[i + 1][1] - val[i][1] >= 0.00347222222:
+        #             # print(key)
+        #             if user in users_with_invalid_activities:
+        #                 users_with_invalid_activities[user] += 1
+        #             else:
+        #                 users_with_invalid_activities[user] = 1
+        #             break
+        
+        # print(users_with_invalid_activities)
+        # all_users = []
+        # for key in users_with_invalid_activities:
+        #     all_users.append((key, users_with_invalid_activities[key]))
+        
+        # print(tabulate(all_users, headers=["User", "Number of invalid activities"]))
+
+        query = """
+                SELECT 
+                        Activity.user_id AS "User", COUNT(DISTINCT(activity_id)) as "Number of illegal activities"
+                FROM (
+                    SELECT
+                        TP1.activity_id AS activity_id, (TP2.date_days - TP1.date_days) AS diff
+                    FROM 
+                        TrackPoint AS TP1 INNER JOIN TrackPoint AS TP2 ON TP1.activity_id=TP2.activity_id AND TP1.id+1=TP2.id
+                    HAVING 
+                        diff >= 0.00347222222
+                    ) AS sub JOIN Activity ON Activity.id = sub.activity_id
+
+                GROUP BY Activity.user_id
+                ORDER BY COUNT(DISTINCT(activity_id)) ASC;
+                """
         self.cursor.execute(query)
 
-        activities = {}
-        for activity in self.cursor.fetchall():
-            if activity[0] in activities:
-                activities[activity[0]].append(activity[1:])
-            else:
-                activities[activity[0]] = [activity[1:]]
-        
+        rows = self.cursor.fetchall()
 
-        users_with_invalid_activities = {}
-        for key, val in activities.items():
-            user = val[0][0]
-            for i in range(0, len(val) - 1):
-                if val[i + 1][1] - val[i][1] >= 0.00347222222:
-                    if user in users_with_invalid_activities:
-                        users_with_invalid_activities[user] += 1
-                    else:
-                        users_with_invalid_activities[user] = 1
-                    break
-
-        all_users = []
-        for key in users_with_invalid_activities:
-            all_users.append((key, users_with_invalid_activities[user]))
-        
-        print(tabulate(all_users, headers=["User", "Number of invalid activities"]))
+        print(tabulate(rows, headers=self.cursor.column_names))
 
     def task2point10(self):
         print('################################')
@@ -438,38 +469,73 @@ class Program:
     def task2point11(self):
         print('################################')
         print('Task 2.11')
-        query = 'SELECT user_id, transportation_mode  FROM Activity WHERE transportation_mode IN (SELECT DISTINCT transportation_mode FROM Activity);'
+        # query = 'SELECT user_id, transportation_mode  FROM Activity WHERE transportation_mode IN (SELECT DISTINCT transportation_mode FROM Activity);'
 
-        self.cursor.execute(query)
+        # self.cursor.execute(query)
 
-        users = {}
-        for row in self.cursor.fetchall():
-            user = row[0]
-            mode = row[1]
-            if user in users:
-                if mode in users[user]:
-                    users[user][mode] += 1
-                else:
-                    users[user][mode] = 1
-            else:
-                users[user] = {mode: 1}
+        # users = {}
+        # for row in self.cursor.fetchall():
+        #     user = row[0]
+        #     mode = row[1]
+        #     if user in users:
+        #         if mode in users[user]:
+        #             users[user][mode] += 1
+        #         else:
+        #             users[user][mode] = 1
+        #     else:
+        #         users[user] = {mode: 1}
 
-        all_users = []
-        for user, modes in users.items():
-            trans_count = 0
-            trans_mode = None
-            for mode, count in modes.items():
-                if count > trans_count:
-                    trans_count = count
-                    trans_mode = mode
-            all_users.append([user, trans_mode])
+        # all_users = []
+        # for user, modes in users.items():
+        #     trans_count = 0
+        #     trans_mode = None
+        #     for mode, count in modes.items():
+        #         if count > trans_count:
+        #             trans_count = count
+        #             trans_mode = mode
+        #     all_users.append([user, trans_mode])
         
-        print(tabulate(all_users, headers=["user_id", "most_used_transportation_mode"]))
+        # print(tabulate(all_users, headers=["user_id", "most_used_transportation_mode"]))
+
+        query = """
+        SELECT sub2.user_id AS "User", sub2.transportation_mode AS "Most used transportation mode", sub2.antall
+	    FROM (
+		    SELECT
+			    user_id, transportation_mode, COUNT(transportation_mode) AS antall 
+		    FROM 
+			    Activity a WHERE transportation_mode IS NOT NULL
+		    GROUP BY transportation_mode, user_id
+            ) as sub 
+            JOIN (
+		        SELECT
+			        user_id, transportation_mode, COUNT(transportation_mode) AS antall 
+		        FROM 
+			        Activity a WHERE transportation_mode IS NOT NULL
+		        GROUP BY transportation_mode, user_id 
+                ) as sub2 ON sub.user_id = sub2.user_id	
+        GROUP BY sub2.user_id, sub2.transportation_mode
+        HAVING antall = MAX(sub.antall)
+        ORDER BY sub2.user_id;
+        """
+        self.cursor.execute(query)
+        rows = list(map(lambda x: x[0:2], self.cursor.fetchall()))
+
+        users = []
+        trans_modes = []
+
+        for user in rows:
+            if user[0] in users:
+                continue
+            else:
+                users.append(user[0])
+                trans_modes.append(user)
+
+        print(tabulate(trans_modes, headers=self.cursor.column_names))
 
 def main():
     # try:
     program = Program()
-    # program.cleanDB()
+    # program.setup()
     # program.setMaxGlobal()
     # print('##############')
     # start = time.time()
@@ -480,26 +546,26 @@ def main():
     # print(f'{time.time() - start} seconds')
     # program.task2point1()
     # print()
-    program.task2point2()
-    print()
-    program.task2point3()
-    print()
-    program.task2point4()
-    print()
-    program.task2point5()
-    print()
-    program.task2point6a()
-    print()
-    program.task2point6b()
-    print()
-    program.task2point7()
-    print()
-    program.task2point8()
-    print()
-    program.task2point9()
-    print()
-    program.task2point10()
-    print()
+    # program.task2point2()
+    # print()
+    # program.task2point3()
+    # print()
+    # program.task2point4()
+    # print()
+    # program.task2point5()
+    # print()
+    # program.task2point6a()
+    # print()
+    # program.task2point6b()
+    # print()
+    # program.task2point7()
+    # print()
+    # program.task2point8()
+    # print()
+    # program.task2point9()
+    # print()
+    # program.task2point10()
+    # print()
     program.task2point11()
     # except Exception as e:
         # print(e)
